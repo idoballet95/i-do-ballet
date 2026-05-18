@@ -17,10 +17,10 @@ function isFutsal(e: WorkoutEvent): e is FutsalSession {
 }
 
 function matchOurScore(m: MatchResult): number {
-  return m.finalOur ?? m.quarterResults.reduce((s, q) => s + q.our, 0);
+  return m.finalOur ?? (m.quarterResults ?? []).reduce((s, q) => s + q.our, 0);
 }
 function matchTheirScore(m: MatchResult): number {
-  return m.finalTheir ?? m.quarterResults.reduce((s, q) => s + q.their, 0);
+  return m.finalTheir ?? (m.quarterResults ?? []).reduce((s, q) => s + q.their, 0);
 }
 function matchResult(m: MatchResult): '승' | '무' | '패' {
   const our = matchOurScore(m);
