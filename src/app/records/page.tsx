@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { mockEvents } from '@/data/mock';
+import { useEvents } from '@/lib/events-store';
 import type { FutsalSession, BalletSession, WorkoutEvent, FutsalType, MatchResult } from '@/types';
 import { conditionEmoji, balletTypeEmoji } from '@/lib/ballet';
 import EventModal from '@/components/EventModal';
@@ -29,6 +29,7 @@ function matchResult(m: MatchResult): '승' | '무' | '패' {
 }
 
 export default function RecordsPage() {
+  const { events } = useEvents();
   const [tab, setTab] = useState<Tab>('futsal');
   const [futsalView, setFutsalView] = useState<FutsalView>('overview');
   const [selectedEvent, setSelectedEvent] = useState<WorkoutEvent | null>(null);
@@ -55,21 +56,21 @@ export default function RecordsPage() {
 
   const futsalSessions = useMemo(
     () =>
-      mockEvents
+      events
         .filter(isFutsal)
         .filter((e) => matchesPeriod(e.date))
         .sort((a, b) => b.date.localeCompare(a.date)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [periodMode, pYear, pMonth]
+    [events, periodMode, pYear, pMonth]
   );
   const balletSessions = useMemo(
     () =>
-      mockEvents
+      events
         .filter((e): e is BalletSession => e.category === 'ballet')
         .filter((e) => matchesPeriod(e.date))
         .sort((a, b) => b.date.localeCompare(a.date)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [periodMode, pYear, pMonth]
+    [events, periodMode, pYear, pMonth]
   );
 
   const futsalStats = useMemo(() => {

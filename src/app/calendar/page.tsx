@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { mockEvents } from '@/data/mock';
+import { useEvents } from '@/lib/events-store';
 import { WorkoutEvent } from '@/types';
 import EventModal from '@/components/EventModal';
 import Avatar from '@/components/Avatar';
@@ -21,6 +21,7 @@ function formatDateKey(year: number, month: number, day: number) {
 }
 
 export default function CalendarPage() {
+  const { events } = useEvents();
   const today = new Date();
   const [currentYear, setCurrentYear] = useState(today.getFullYear());
   const [currentMonth, setCurrentMonth] = useState(today.getMonth());
@@ -29,12 +30,12 @@ export default function CalendarPage() {
 
   const eventsByDate = useMemo(() => {
     const map: Record<string, WorkoutEvent[]> = {};
-    mockEvents.forEach((e) => {
+    events.forEach((e) => {
       if (!map[e.date]) map[e.date] = [];
       map[e.date].push(e);
     });
     return map;
-  }, []);
+  }, [events]);
 
   const daysInMonth = getDaysInMonth(currentYear, currentMonth);
   const firstDay = getFirstDayOfMonth(currentYear, currentMonth);
@@ -70,11 +71,11 @@ export default function CalendarPage() {
   const selectedEvents = selectedDate ? (eventsByDate[selectedDate] || []) : [];
 
   const upcomingEvents = useMemo(() => {
-    return mockEvents
+    return events
       .filter((e) => e.date >= todayKey)
       .sort((a, b) => a.date.localeCompare(b.date))
       .slice(0, 5);
-  }, [todayKey]);
+  }, [events, todayKey]);
 
   return (
     <div className="animate-fade-in-up">

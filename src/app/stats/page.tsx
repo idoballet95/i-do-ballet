@@ -1,10 +1,9 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { mockEvents } from '@/data/mock';
-import type { FutsalSession, MatchResult } from '@/types';
+import { useEvents } from '@/lib/events-store';
+import type { FutsalSession, MatchResult, MatchScorer } from '@/types';
 import Avatar from '@/components/Avatar';
-import Image from 'next/image';
 
 function isFutsal(e: { category: string }): e is FutsalSession {
   return e.category === 'futsal';
@@ -33,6 +32,9 @@ interface MatchPoint {
   sessionId: string;
   finalRank?: number;
   sessionPlace: string;
+  videoLinks?: string[];
+  videoLink?: string;
+  scorers?: MatchScorer[];
 }
 
 interface TournamentInfo {
@@ -44,13 +46,14 @@ interface TournamentInfo {
 }
 
 export default function StatsPage() {
+  const { events } = useEvents();
   const [tab, setTab] = useState<Tab>('nova');
 
   const novaMatches: MatchPoint[] = useMemo(
-    () => collectMatches((s) => s.team === 'NOVA'),
-    []
+    () => collectMatches(events, (s) => s.team === 'NOVA'),
+    [events]
   );
-  const myMatches: MatchPoint[] = useMemo(() => collectMatches(() => true), []);
+  const myMatches: MatchPoint[] = useMemo(() => collectMatches(events, () => true), [events]);
 
   return (
     <div className="animate-fade-in-up">
@@ -71,12 +74,10 @@ export default function StatsPage() {
               tab === 'nova' ? 'tab-pill-active' : 'opacity-35'
             }`}
           >
-            <Image
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
               src="/nova-logo.png"
               alt="NOVA"
-              width={0}
-              height={0}
-              sizes="100vw"
               className="object-contain w-auto"
               style={{ height: '17px' }}
             />
@@ -97,9 +98,9 @@ export default function StatsPage() {
   );
 }
 
-function collectMatches(filter: (s: FutsalSession) => boolean): MatchPoint[] {
+function collectMatches(events: import('@/types').WorkoutEvent[], filter: (s: FutsalSession) => boolean): MatchPoint[] {
   const out: MatchPoint[] = [];
-  mockEvents
+  events
     .filter(isFutsal)
     .filter((s) => (s.type === '대회' || s.type === '친선경기') && filter(s))
     .sort((a, b) => a.date.localeCompare(b.date))
@@ -120,6 +121,9 @@ function collectMatches(filter: (s: FutsalSession) => boolean): MatchPoint[] {
           sessionId: s.id,
           finalRank: s.finalRank,
           sessionPlace: s.place,
+          videoLinks: s.videoLinks,
+          videoLink: m.videoLink,
+          scorers: m.scorers,
         });
       });
     });
@@ -130,7 +134,22 @@ function collectMatches(filter: (s: FutsalSession) => boolean): MatchPoint[] {
 
 function NovaView({ matches }: { matches: MatchPoint[] }) {
   const [kind, setKind] = useState<FutsalKind>('대회');
-  const filtered = matches.filter((m) => m.type === kind);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [selectedYear, setSelectedYear] = useState<number | null>(null);
+
+  // 연도 목록 (중복 제거, 내림차순)
+  const years = useMemo(() => {
+    const s = new Set(matches.map((m) => new Date(m.date + 'T00:00:00').getFullYear()));
+    return Array.from(s).sort((a, b) => b - a);
+  }, [matches]);
+
+  const filtered = matches
+    .filter((m) => m.type === kind)
+    .filter((m) => selectedYear === null || new Date(m.date + 'T00:00:00').getFullYear() === selectedYear);
+
+  // kind / year 바뀌면 선택 초기화
+  const handleKindChange = (k: FutsalKind) => { setKind(k); setSelectedSessionId(null); };
+  const handleYearChange = (y: number | null) => { setSelectedYear(y); setSelectedSessionId(null); };
 
   const wins = filtered.filter((m) => m.result === '승').length;
   const draws = filtered.filter((m) => m.result === '무').length;
@@ -138,6 +157,11 @@ function NovaView({ matches }: { matches: MatchPoint[] }) {
   const winRate = filtered.length ? Math.round((wins / filtered.length) * 100) : 0;
   const totalFor = filtered.reduce((s, m) => s + m.our, 0);
   const totalAgainst = filtered.reduce((s, m) => s + m.their, 0);
+
+  // 선택된 대회의 경기만 Performance에 표시 (없으면 전체)
+  const performanceMatches = selectedSessionId
+    ? filtered.filter((m) => m.sessionId === selectedSessionId)
+    : filtered;
 
   const tournaments: TournamentInfo[] = useMemo(() => {
     const map = new Map<string, TournamentInfo>();
@@ -158,6 +182,11 @@ function NovaView({ matches }: { matches: MatchPoint[] }) {
     return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
   }, [matches]);
 
+  // Performance 카드 제목 + 영상 링크
+  const selectedMatch = selectedSessionId ? filtered.find((m) => m.sessionId === selectedSessionId) : null;
+  const perfTitle = selectedMatch?.sessionPlace ?? 'Performance';
+  const sessionVideoLinks = selectedMatch?.videoLinks ?? [];
+
   return (
     <div className="space-y-4 animate-fade-in-up">
       {/* Sub-tabs */}
@@ -165,7 +194,7 @@ function NovaView({ matches }: { matches: MatchPoint[] }) {
         {(['대회', '친선경기'] as FutsalKind[]).map((k) => (
           <button
             key={k}
-            onClick={() => setKind(k)}
+            onClick={() => handleKindChange(k)}
             className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all duration-200 ${
               kind === k
                 ? 'bg-nova text-white shadow-sm'
@@ -191,15 +220,60 @@ function NovaView({ matches }: { matches: MatchPoint[] }) {
             <MiniStat label="패" value={String(losses)} color="red" />
           </div>
 
-          {/* Goal Tracker */}
-          <ChartCard title="Goal Tracker" subtitle={`득점 ${totalFor} · 실점 ${totalAgainst}`}>
-            <NovaGoalsChart matches={filtered} />
-          </ChartCard>
+          {/* Goal Tracker + Performance — 데스크탑 2열 */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+            <ChartCard
+              title="노바 대회 기록"
+              subtitle={`득점 ${totalFor} · 실점 ${totalAgainst}`}
+              headerRight={
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => handleYearChange(null)}
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-semibold transition-all ${
+                      selectedYear === null ? 'bg-nova text-white' : 'bg-surface-secondary text-text-tertiary hover:bg-gray-200'
+                    }`}
+                  >
+                    전체
+                  </button>
+                  {years.map((y) => (
+                    <button
+                      key={y}
+                      onClick={() => handleYearChange(y)}
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-semibold transition-all ${
+                        selectedYear === y ? 'bg-nova text-white' : 'bg-surface-secondary text-text-tertiary hover:bg-gray-200'
+                      }`}
+                    >
+                      {y}
+                    </button>
+                  ))}
+                </div>
+              }
+            >
+              <HorizontalGoalsChart
+                matches={filtered}
+                kind={kind}
+                selectedSessionId={selectedSessionId}
+                onSelect={(id) => setSelectedSessionId(id === selectedSessionId ? null : id)}
+              />
+            </ChartCard>
 
-          {/* Performance */}
-          <ChartCard title="Performance">
-            <PerformanceList matches={filtered} />
-          </ChartCard>
+            <ChartCard
+              title={perfTitle}
+              subtitle={selectedSessionId ? '경기 목록 · 득점자' : '전체 경기'}
+              headerRight={
+                selectedSessionId ? (
+                  <button
+                    onClick={() => setSelectedSessionId(null)}
+                    className="text-[10px] text-text-tertiary bg-surface-secondary px-2 py-1 rounded-full hover:bg-gray-200 transition-colors"
+                  >
+                    전체 보기
+                  </button>
+                ) : undefined
+              }
+            >
+              <PerformanceList matches={performanceMatches} />
+            </ChartCard>
+          </div>
 
           {/* Tournament rank — only 대회 */}
           {kind === '대회' && tournaments.length > 0 && (
@@ -256,15 +330,159 @@ function MeView({ matches }: { matches: MatchPoint[] }) {
         </div>
       </div>
 
-      {/* Goal Tracker 대회 */}
-      <ChartCard title="Goal Tracker · 대회" subtitle={`골 ${tourG} · 어시 ${tourA}`}>
-        <CumulativeAttackChart matches={tour} accent="#D97706" lightAccent="#FCD34D" />
-      </ChartCard>
+      {/* Goal Tracker 대회 + 친선 — 데스크탑 2열 */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <ChartCard title="Goal Tracker · 대회" subtitle={`골 ${tourG} · 어시 ${tourA}`}>
+          <CumulativeAttackChart matches={tour} accent="#D97706" lightAccent="#FCD34D" />
+        </ChartCard>
 
-      {/* Goal Tracker 친선 */}
-      <ChartCard title="Goal Tracker · 친선" subtitle={`골 ${friendG} · 어시 ${friendA}`}>
-        <CumulativeAttackChart matches={friend} accent="#65A30D" lightAccent="#BEF264" />
-      </ChartCard>
+        <ChartCard title="Goal Tracker · 친선" subtitle={`골 ${friendG} · 어시 ${friendA}`}>
+          <CumulativeAttackChart matches={friend} accent="#65A30D" lightAccent="#BEF264" />
+        </ChartCard>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────── Horizontal Goals Chart (대회/친선 리스트)
+
+interface SessionRow {
+  sessionId: string;
+  label: string;
+  date: string;
+  totalOur: number;
+  totalTheir: number;
+  finalRank?: number;
+}
+
+function groupBySession(matches: MatchPoint[]): SessionRow[] {
+  const map = new Map<string, SessionRow>();
+  matches.forEach((m) => {
+    if (!map.has(m.sessionId)) {
+      map.set(m.sessionId, {
+        sessionId: m.sessionId,
+        label: m.sessionPlace,
+        date: m.date,
+        totalOur: 0,
+        totalTheir: 0,
+        finalRank: m.finalRank,
+      });
+    }
+    const row = map.get(m.sessionId)!;
+    row.totalOur += m.our;
+    row.totalTheir += m.their;
+  });
+  return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function HorizontalGoalsChart({
+  matches,
+  kind,
+  selectedSessionId,
+  onSelect,
+}: {
+  matches: MatchPoint[];
+  kind: FutsalKind;
+  selectedSessionId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  if (matches.length === 0)
+    return <p className="text-xs text-text-tertiary text-center py-6">기록이 없어요</p>;
+
+  // 대회: 세션별 묶음 / 친선: 개별 경기
+  const rows: SessionRow[] =
+    kind === '대회'
+      ? groupBySession(matches)
+      : matches.map((m) => ({
+          sessionId: m.sessionId,
+          label: `vs ${m.opponent}`,
+          date: m.date,
+          totalOur: m.our,
+          totalTheir: m.their,
+        }));
+
+  const maxGoals = Math.max(1, ...rows.map((r) => Math.max(r.totalOur, r.totalTheir)));
+
+  return (
+    <div className="space-y-2">
+      {rows.map((row) => {
+        const isSelected = selectedSessionId === row.sessionId;
+        const ourPct = (row.totalOur / maxGoals) * 100;
+        const theirPct = (row.totalTheir / maxGoals) * 100;
+        const result =
+          row.totalOur > row.totalTheir ? '승' : row.totalOur < row.totalTheir ? '패' : '무';
+        const resultColor =
+          result === '승' ? 'text-futsal-deep' : result === '패' ? 'text-red-400' : 'text-gray-400';
+
+        // 대회: 최종순위 표시 / 친선: 승무패 표시
+        const rankLabel =
+          kind === '대회' && row.finalRank != null
+            ? `${row.finalRank}위`
+            : kind === '대회'
+            ? ''
+            : result;
+        const rankColor =
+          kind === '대회' && row.finalRank != null
+            ? row.finalRank === 1
+              ? 'text-amber-500'
+              : row.finalRank <= 3
+              ? 'text-purple-500'
+              : 'text-text-tertiary'
+            : resultColor;
+
+        return (
+          <button
+            key={row.sessionId}
+            onClick={() => onSelect(row.sessionId)}
+            className={`w-full text-left px-3 py-2.5 rounded-xl transition-all duration-150 ${
+              isSelected
+                ? 'bg-nova/10 ring-1 ring-nova/40'
+                : 'bg-white hover:bg-gray-50 active:scale-[0.99]'
+            }`}
+          >
+            {/* 헤더 */}
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-text-primary truncate max-w-[70%]">
+                {row.label}
+              </span>
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                {rankLabel && (
+                  <span className={`text-[11px] font-bold ${rankColor}`}>{rankLabel}</span>
+                )}
+                <span className="text-[10px] text-text-tertiary">{formatDotDate(row.date)}</span>
+              </div>
+            </div>
+
+            {/* 득점 바 */}
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-[11px] font-bold text-futsal-deep w-4 text-right tabular-nums">
+                {row.totalOur}
+              </span>
+              <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-futsal rounded-full transition-all duration-300"
+                  style={{ width: `${ourPct}%` }}
+                />
+              </div>
+              <span className="text-[10px] text-text-tertiary w-6">득점</span>
+            </div>
+
+            {/* 실점 바 */}
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-bold text-red-400 w-4 text-right tabular-nums">
+                {row.totalTheir}
+              </span>
+              <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-red-300 rounded-full transition-all duration-300"
+                  style={{ width: `${theirPct}%` }}
+                />
+              </div>
+              <span className="text-[10px] text-text-tertiary w-6">실점</span>
+            </div>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -318,6 +536,11 @@ function ChartCard({
 function formatShort(dateStr: string) {
   const d = new Date(dateStr + 'T00:00:00');
   return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+function formatDotDate(dateStr: string) {
+  const d = new Date(dateStr + 'T00:00:00');
+  return `${d.getFullYear()}.${d.getMonth() + 1}.${d.getDate()}`;
 }
 
 function formatYear(dateStr: string) {
@@ -381,7 +604,28 @@ function PerformanceList({ matches }: { matches: MatchPoint[] }) {
               </span>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-text-primary truncate">vs {m.opponent}</p>
-                <p className="text-[10px] text-text-tertiary mt-0.5">{formatShort(m.date)}</p>
+                {m.scorers && m.scorers.length > 0 ? (
+                  <p className="text-[10px] text-text-tertiary mt-0.5 truncate">
+                    ⚽ {m.scorers.map((s) => `${s.name}${s.goals > 1 ? ` (${s.goals})` : ''}`).join(' · ')}
+                  </p>
+                ) : (
+                  <p className="text-[10px] text-text-tertiary mt-0.5">{formatShort(m.date)}</p>
+                )}
+                {m.videoLink && (
+                  <a
+                    href={m.videoLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="inline-flex items-center gap-1 mt-1 text-[10px] text-red-500 hover:text-red-600 transition-colors"
+                  >
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M23.5 6.2a3 3 0 00-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.5A3 3 0 00.5 6.2 31 31 0 000 12a31 31 0 00.5 5.8 3 3 0 002.1 2.1c1.9.5 9.4.5 9.4.5s7.5 0 9.4-.5a3 3 0 002.1-2.1A31 31 0 0024 12a31 31 0 00-.5-5.8z"/>
+                      <polygon fill="white" points="9.8 15.2 15.8 12 9.8 8.8 9.8 15.2"/>
+                    </svg>
+                    경기 영상
+                  </a>
+                )}
               </div>
               <span className={`text-base font-bold tabular-nums ${scoreTint}`}>
                 {m.our} : {m.their}

@@ -20,7 +20,32 @@ export const BALLET_STUDIOS = [
 ] as const;
 
 export const mockEvents: WorkoutEvent[] = [
-  // ── 추가 NOVA 기록 (성장 그래프용)
+  // ── 2026 실제 대회 기록
+  {
+    id: 'nova-20260517',
+    category: 'futsal',
+    team: 'NOVA',
+    date: '2026-05-17',
+    place: '풋투풋 얼티밋컵',
+    startTime: '09:00',
+    endTime: '20:00',
+    type: '대회',
+    goals: 0,
+    assists: 0,
+    matches: [
+      { id: 'nova-20260517-m1', opponent: '레드문',     finalOur: 0, finalTheir: 0, myGoals: 0, myAssists: 0, videoLink: 'https://youtu.be/jLJh7Ey9wKA?si=2JaCGGgLdwklJHE7' },
+      { id: 'nova-20260517-m2', opponent: 'MUTANT',     finalOur: 0, finalTheir: 0, myGoals: 0, myAssists: 0, videoLink: 'https://youtu.be/Awbi1JtO8Rk?si=8U_8HZfei7zwQleR' },
+      { id: 'nova-20260517-m3', opponent: 'UJBWFC',     finalOur: 0, finalTheir: 0, myGoals: 0, myAssists: 0, videoLink: 'https://youtu.be/iFIaGrDlhic?si=_IEiqsSxceEzulKb' },
+      { id: 'nova-20260517-m4', opponent: 'bucket fc',  finalOur: 0, finalTheir: 0, myGoals: 0, myAssists: 0, videoLink: 'https://youtu.be/51G-xIZ0TYs?si=3WlU7mILCf2zvHl9' },
+      { id: 'nova-20260517-m5', opponent: 'team ARX',   finalOur: 0, finalTheir: 0, myGoals: 0, myAssists: 0, videoLink: 'https://youtu.be/9oAAXH-zpyI?si=Rub4aIlhCXd-Xawr' },
+      { id: 'nova-20260517-m6', opponent: '레드문 fc (8강)',  finalOur: 0, finalTheir: 0, myGoals: 0, myAssists: 0, videoLink: 'https://youtu.be/t_RpDA-ZoAA?si=tjlWLCNh4Iim7pgh' },
+      { id: 'nova-20260517-m7', opponent: 'ARX (4강)',   finalOur: 0, finalTheir: 0, myGoals: 0, myAssists: 0, videoLink: 'https://youtu.be/t4DZPJfCKnw?si=BHtEXq2Lxk39MGPi' },
+      { id: 'nova-20260517-m8', opponent: 'PELTA (3·4위전)', finalOur: 0, finalTheir: 0, myGoals: 0, myAssists: 0, videoLink: 'https://youtu.be/xcPiR36w8WM?si=k4aKechOo4vZlkSb' },
+    ],
+    memo: '풋투풋 얼티밋컵 2026.05.17 — 스코어 입력 필요',
+  },
+
+  // ── 샘플 NOVA 기록 (성장 그래프용)
   {
     id: 'n1',
     category: 'futsal',
@@ -33,9 +58,10 @@ export const mockEvents: WorkoutEvent[] = [
     goals: 1,
     assists: 1,
     finalRank: 4,
+    videoLinks: ['https://youtu.be/example-n1'],
     matches: [
-      { id: 'm-n1-1', opponent: '강북FC', finalOur: 2, finalTheir: 3, myGoals: 1, myAssists: 0 },
-      { id: 'm-n1-2', opponent: '판교FC', finalOur: 1, finalTheir: 1, myGoals: 0, myAssists: 1 },
+      { id: 'm-n1-1', opponent: '강북FC', finalOur: 2, finalTheir: 3, myGoals: 1, myAssists: 0, scorers: [{ name: '아이두', goals: 1 }, { name: '지호', goals: 1 }], videoLink: 'https://youtu.be/example-n1-1' },
+      { id: 'm-n1-2', opponent: '판교FC', finalOur: 1, finalTheir: 1, myGoals: 0, myAssists: 1, scorers: [{ name: '민준', goals: 1 }] },
     ],
     memo: '시즌 첫 대회. 아직 호흡이 안 맞는다.',
   },
@@ -78,10 +104,11 @@ export const mockEvents: WorkoutEvent[] = [
     goals: 2,
     assists: 1,
     finalRank: 3,
+    videoLinks: ['https://youtu.be/example-n3-1', 'https://youtu.be/example-n3-2'],
     matches: [
-      { id: 'm-n3-1', opponent: '한남FC', finalOur: 3, finalTheir: 2, myGoals: 1, myAssists: 1 },
-      { id: 'm-n3-2', opponent: '동작FC', finalOur: 2, finalTheir: 2, myGoals: 1, myAssists: 0 },
-      { id: 'm-n3-3', opponent: '관악FC', finalOur: 1, finalTheir: 2, myGoals: 0, myAssists: 0 },
+      { id: 'm-n3-1', opponent: '한남FC', finalOur: 3, finalTheir: 2, myGoals: 1, myAssists: 1, scorers: [{ name: '아이두', goals: 1 }, { name: '수지', goals: 1 }, { name: '예은', goals: 1 }], videoLink: 'https://youtu.be/example-n3-1' },
+      { id: 'm-n3-2', opponent: '동작FC', finalOur: 2, finalTheir: 2, myGoals: 1, myAssists: 0, scorers: [{ name: '아이두', goals: 1 }, { name: '민준', goals: 1 }], videoLink: 'https://youtu.be/example-n3-2' },
+      { id: 'm-n3-3', opponent: '관악FC', finalOur: 1, finalTheir: 2, myGoals: 0, myAssists: 0, scorers: [{ name: '지호', goals: 1 }] },
     ],
     memo: '3위 입상. 체력 관리 과제.',
   },
@@ -124,10 +151,11 @@ export const mockEvents: WorkoutEvent[] = [
     goals: 3,
     assists: 2,
     finalRank: 2,
+    videoLinks: ['https://youtu.be/example-n5'],
     matches: [
-      { id: 'm-n5-1', opponent: '광진FC', finalOur: 4, finalTheir: 1, myGoals: 2, myAssists: 1 },
-      { id: 'm-n5-2', opponent: '용산FC', finalOur: 2, finalTheir: 2, myGoals: 1, myAssists: 1 },
-      { id: 'm-n5-3', opponent: '서대문FC', finalOur: 1, finalTheir: 2, myGoals: 0, myAssists: 0 },
+      { id: 'm-n5-1', opponent: '광진FC', finalOur: 4, finalTheir: 1, myGoals: 2, myAssists: 1, scorers: [{ name: '아이두', goals: 2 }, { name: '수지', goals: 1 }, { name: '예은', goals: 1 }], videoLink: 'https://youtu.be/example-n5-1' },
+      { id: 'm-n5-2', opponent: '용산FC', finalOur: 2, finalTheir: 2, myGoals: 1, myAssists: 1, scorers: [{ name: '아이두', goals: 1 }, { name: '민준', goals: 1 }], videoLink: 'https://youtu.be/example-n5-2' },
+      { id: 'm-n5-3', opponent: '서대문FC', finalOur: 1, finalTheir: 2, myGoals: 0, myAssists: 0, scorers: [{ name: '지호', goals: 1 }], videoLink: 'https://youtu.be/example-n5-3' },
     ],
     memo: '준우승. 결승에서 아쉬웠지만 큰 성장.',
   },
@@ -197,9 +225,9 @@ export const mockEvents: WorkoutEvent[] = [
     assists: 3,
     finalRank: 2,
     matches: [
-      { id: 'm-3-1', opponent: '레드불FC', finalOur: 3, finalTheir: 1, myGoals: 1, myAssists: 1 },
-      { id: 'm-3-2', opponent: '서울유나이티드', finalOur: 2, finalTheir: 2, myGoals: 0, myAssists: 1 },
-      { id: 'm-3-3', opponent: '강서FC', finalOur: 2, finalTheir: 1, myGoals: 1, myAssists: 1 },
+      { id: 'm-3-1', opponent: '레드불FC', finalOur: 3, finalTheir: 1, myGoals: 1, myAssists: 1, scorers: [{ name: '아이두', goals: 1 }, { name: '수지', goals: 1 }, { name: '예은', goals: 1 }], videoLink: 'https://youtu.be/tournament-3-game1' },
+      { id: 'm-3-2', opponent: '서울유나이티드', finalOur: 2, finalTheir: 2, myGoals: 0, myAssists: 1, scorers: [{ name: '민준', goals: 1 }, { name: '지호', goals: 1 }], videoLink: 'https://youtu.be/tournament-3-game2' },
+      { id: 'm-3-3', opponent: '강서FC', finalOur: 2, finalTheir: 1, myGoals: 1, myAssists: 1, scorers: [{ name: '아이두', goals: 1 }, { name: '수지', goals: 1 }], videoLink: 'https://youtu.be/tournament-3-game3' },
     ],
     videoLinks: [
       'https://youtube.com/watch?v=tournament-3-final',

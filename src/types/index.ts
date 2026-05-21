@@ -29,6 +29,11 @@ export interface QuarterResult {
   their: number;
 }
 
+export interface MatchScorer {
+  name: string;
+  goals: number;
+}
+
 export interface MatchResult {
   id: string;
   opponent: string;
@@ -36,6 +41,8 @@ export interface MatchResult {
   finalTheir: number;
   myGoals: number;
   myAssists: number;
+  scorers?: MatchScorer[];
+  videoLink?: string;
   // 친선경기만 쿼터 사용. 대회는 쿼터 없음(단판).
   quarterResults?: QuarterResult[];
 }
