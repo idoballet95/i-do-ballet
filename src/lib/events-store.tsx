@@ -24,13 +24,22 @@ const Ctx = createContext<EventsCtx | null>(null);
 export function EventsProvider({ children }: { children: ReactNode }) {
   const [events, setEvents] = useState<WorkoutEvent[]>(mockEvents);
 
-  // hydrate from localStorage on mount
+  // hydrate from localStorage on mount, merging any new mockEvents not yet stored
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
-        setEvents(JSON.parse(raw));
+        const stored: WorkoutEvent[] = JSON.parse(raw);
+        const storedIds = new Set(stored.map((e) => e.id));
+        // Add any new entries from mockEvents that aren't in localStorage yet
+        const newFromMock = mockEvents.filter((e) => !storedIds.has(e.id));
+        const merged = [...stored, ...newFromMock];
+        setEvents(merged);
+        if (newFromMock.length > 0) {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+        }
       } else {
+        setEvents(mockEvents);
         localStorage.setItem(STORAGE_KEY, JSON.stringify(mockEvents));
       }
     } catch {}

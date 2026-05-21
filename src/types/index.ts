@@ -37,6 +37,7 @@ export interface MatchScorer {
 export interface MatchResult {
   id: string;
   opponent: string;
+  label?: string;          // 예선1, 8강, 4강, 3·4위전 등
   finalOur: number;
   finalTheir: number;
   myGoals: number;
