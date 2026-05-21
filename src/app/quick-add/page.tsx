@@ -203,6 +203,7 @@ function FutsalForm({
   const [pasteMode, setPasteMode] = useState(false);
   const [pasteText, setPasteText] = useState('');
   const [parseError, setParseError] = useState('');
+  const [parsePreview, setParsePreview] = useState<{ date: string; place: string; matches: MatchInput[] } | null>(null);
 
   const showMatches = type !== '훈련';
   const withQuarters = type === '친선경기';
@@ -212,6 +213,7 @@ function FutsalForm({
     if (t === '훈련') setMatches([]);
     else setMatches([newMatch(t === '친선경기')]);
     setPasteMode(false);
+    setParsePreview(null);
   };
 
   // ── 경기 업데이트 헬퍼들
@@ -274,16 +276,23 @@ function FutsalForm({
   const handleParse = () => {
     setParseError('');
     const parsed = parseTournamentText(pasteText);
-    if (!parsed.date && parsed.matches.length === 0) {
-      setParseError('형식을 인식하지 못했어요. 예: "26.05.17 대회명 경기영상\n예선1 상대팀: https://..."');
+    if (parsed.matches.length === 0) {
+      setParseError('경기를 인식하지 못했어요. "예선1 상대팀: https://..." 형식인지 확인해주세요.');
       return;
     }
-    if (parsed.date) setDate(parsed.date);
-    if (parsed.place) setPlace(parsed.place);
-    if (parsed.matches.length > 0) setMatches(parsed.matches);
+    // 미리보기로 먼저 보여주기 (바로 setMatches 하지 않음)
+    setParsePreview(parsed);
+  };
+
+  const handleConfirmParse = () => {
+    if (!parsePreview) return;
+    if (parsePreview.date) setDate(parsePreview.date);
+    if (parsePreview.place) setPlace(parsePreview.place);
+    setMatches(parsePreview.matches);
     setType('대회');
     setPasteMode(false);
     setPasteText('');
+    setParsePreview(null);
   };
 
   const totalGoals = type === '훈련'
@@ -360,26 +369,68 @@ function FutsalForm({
         <div className="bg-surface-secondary rounded-2xl p-4 space-y-3">
           <div className="flex items-center justify-between">
             <p className="text-xs font-semibold text-futsal-deep">대회 텍스트 붙여넣기</p>
-            <button onClick={() => { setPasteMode(false); setPasteText(''); setParseError(''); }} className="text-xs text-text-tertiary">취소</button>
+            <button onClick={() => { setPasteMode(false); setPasteText(''); setParseError(''); setParsePreview(null); }} className="text-xs text-text-tertiary">취소</button>
           </div>
-          <p className="text-[10px] text-text-tertiary leading-relaxed">
-            날짜·경기 영상 링크만 붙여넣으면 돼요. 스코어는 다음 단계에서 입력해요.
-          </p>
-          <textarea
-            value={pasteText}
-            onChange={(e) => setPasteText(e.target.value)}
-            placeholder={"26.05.17 풋투풋 얼티밋컵 경기영상\n\n예선1 레드문: https://youtu.be/...\n예선2 MUTANT: https://youtu.be/...\n8강 레드문 fc: https://youtu.be/..."}
-            rows={8}
-            className="w-full bg-white rounded-xl px-3 py-2.5 text-xs text-text-primary outline-none border border-border focus:border-futsal-mid placeholder:text-text-tertiary resize-none font-mono leading-relaxed"
-          />
-          {parseError && <p className="text-[11px] text-red-400">{parseError}</p>}
-          <button
-            onClick={handleParse}
-            disabled={!pasteText.trim()}
-            className="w-full py-2.5 bg-futsal text-white rounded-xl text-sm font-semibold disabled:opacity-40 active:scale-95 transition-transform"
-          >
-            경기 목록 파싱하기
-          </button>
+
+          {!parsePreview ? (
+            <>
+              <p className="text-[10px] text-text-tertiary leading-relaxed">
+                날짜·경기 영상 링크만 붙여넣으면 돼요. 스코어는 다음 단계에서 입력해요.
+              </p>
+              <textarea
+                value={pasteText}
+                onChange={(e) => setPasteText(e.target.value)}
+                placeholder={"26.05.17 풋투풋 얼티밋컵 경기영상\n\n예선1 레드문: https://youtu.be/...\n예선2 MUTANT: https://youtu.be/...\n8강 레드문 fc: https://youtu.be/..."}
+                rows={8}
+                className="w-full bg-white rounded-xl px-3 py-2.5 text-xs text-text-primary outline-none border border-border focus:border-futsal-mid placeholder:text-text-tertiary resize-none font-mono leading-relaxed"
+              />
+              {parseError && <p className="text-[11px] text-red-400">{parseError}</p>}
+              <button
+                onClick={handleParse}
+                disabled={!pasteText.trim()}
+                className="w-full py-2.5 bg-futsal text-white rounded-xl text-sm font-semibold disabled:opacity-40 active:scale-95 transition-transform"
+              >
+                경기 목록 파싱하기
+              </button>
+            </>
+          ) : (
+            /* ── 파싱 결과 미리보기 */
+            <>
+              <p className="text-xs font-semibold text-futsal-deep">
+                ✅ {parsePreview.matches.length}경기 인식됨
+                {parsePreview.place && <span className="font-normal text-text-tertiary"> · {parsePreview.place}</span>}
+              </p>
+              <div className="space-y-1.5">
+                {parsePreview.matches.map((m, i) => (
+                  <div key={m.id} className="flex items-center gap-2 bg-white rounded-xl px-3 py-2">
+                    {m.label && (
+                      <span className="text-[10px] font-bold text-white bg-futsal-deep px-1.5 py-0.5 rounded-full shrink-0">
+                        {m.label}
+                      </span>
+                    )}
+                    <span className="text-sm font-medium text-text-primary">
+                      {m.opponent || <span className="text-text-tertiary italic">상대팀 미인식</span>}
+                    </span>
+                    <span className="ml-auto text-[10px] text-text-tertiary shrink-0">경기 {i + 1}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setParsePreview(null)}
+                  className="flex-1 py-2.5 bg-white text-text-secondary rounded-xl text-sm font-medium border border-border"
+                >
+                  다시 입력
+                </button>
+                <button
+                  onClick={handleConfirmParse}
+                  className="flex-1 py-2.5 bg-futsal text-white rounded-xl text-sm font-semibold active:scale-95 transition-transform"
+                >
+                  이대로 불러오기
+                </button>
+              </div>
+            </>
+          )}
         </div>
       )}
 
