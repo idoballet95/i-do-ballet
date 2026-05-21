@@ -11,41 +11,53 @@ type Tab = 'futsal' | 'ballet';
 
 const MAX_VIDEO_LINKS = 5;
 
+interface ScorerInput {
+  id: string;
+  name: string;
+  goals: number;
+}
+
 interface MatchInput {
   id: string;
   label: string;       // 예선1, 8강 등
   opponent: string;
   finalOur: string;
   finalTheir: string;
+  hasPK: boolean;
+  pkOur: string;
+  pkTheir: string;
+  scorers: ScorerInput[];
   myGoals: number;
   myAssists: number;
   videoLink: string;
   quarters: QuarterResult[];
 }
 
-function newMatch(withQuarters: boolean, label = ''): MatchInput {
+function newMatch(withQuarters: boolean, label = '', opponent = '', videoLink = ''): MatchInput {
   return {
     id: Math.random().toString(36).slice(2),
     label,
-    opponent: '',
+    opponent,
     finalOur: '',
     finalTheir: '',
+    hasPK: false,
+    pkOur: '',
+    pkTheir: '',
+    scorers: [],
     myGoals: 0,
     myAssists: 0,
-    videoLink: '',
+    videoLink,
     quarters: withQuarters
       ? [{ quarter: 1, our: 0, their: 0 }, { quarter: 2, our: 0, their: 0 }]
       : [],
   };
 }
 
-// ── 붙여넣기 파서 ──────────────────────────────────────────
-// 지원 형식:
-//   26.05.17 대회명 경기영상
-//   예선1 레드문: https://youtu.be/...
-//   -최종: 4:0 승
-//   -아이두: 1골
-//   -아이두: 1 어시
+function newScorer(): ScorerInput {
+  return { id: Math.random().toString(36).slice(2), name: '', goals: 1 };
+}
+
+// ── 붙여넣기 파서 (URL+라운드+상대팀만 파악, 스코어는 다음 단계에서 입력)
 function parseTournamentText(text: string): {
   date: string;
   place: string;
@@ -54,7 +66,6 @@ function parseTournamentText(text: string): {
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
   if (lines.length === 0) return { date: '', place: '', matches: [] };
 
-  // 첫 줄: "26.05.17 풋투풋 얼티밋컵 경기영상"
   const firstLine = lines[0];
   const dateMatch = firstLine.match(/^(\d{2})\.(\d{2})\.(\d{2})/);
   let date = '';
@@ -68,54 +79,21 @@ function parseTournamentText(text: string): {
   }
 
   const matches: MatchInput[] = [];
-  let cur: MatchInput | null = null;
-
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i];
-
-    // ── 경기 라인 (URL 포함)
+  for (const line of lines.slice(1)) {
     const urlMatch = line.match(/(https?:\/\/\S+)/);
-    if (urlMatch) {
-      if (cur) matches.push(cur);
-      const videoLink = urlMatch[1];
-      const beforeUrl = line.slice(0, line.indexOf(videoLink)).trim().replace(/:?\s*$/, '').trim();
-      const labelMatch = beforeUrl.match(/^(예선\s*\d+|8강|16강|4강|준결승|결승|3\.?4위전|3위전|조별리그\s*\d*|\S{1,6})\s+(.+)$/i);
-      let label = '';
-      let opponent = beforeUrl;
-      if (labelMatch) {
-        label = labelMatch[1].replace(/\s/g, '');
-        opponent = labelMatch[2].trim();
-      }
-      cur = { id: Math.random().toString(36).slice(2), label, opponent, finalOur: '', finalTheir: '', myGoals: 0, myAssists: 0, videoLink, quarters: [] };
-      continue;
+    if (!urlMatch) continue;
+    const videoLink = urlMatch[1];
+    const beforeUrl = line.slice(0, line.indexOf(videoLink)).trim().replace(/:?\s*$/, '').trim();
+    const labelMatch = beforeUrl.match(/^(예선\s*\d+|8강|16강|4강|준결승|결승|3\.?4위전|3위전|조별리그\s*\d*|\S{1,6})\s+(.+)$/i);
+    let label = '';
+    let opponent = beforeUrl;
+    if (labelMatch) {
+      label = labelMatch[1].replace(/\s/g, '');
+      opponent = labelMatch[2].trim();
     }
-
-    if (!cur) continue;
-
-    // ── 최종 스코어: "-최종: 4:0 승" / "최종: 1:0"
-    const scoreMatch = line.match(/최종[:\s]+(\d+)\s*:\s*(\d+)/);
-    if (scoreMatch) {
-      cur.finalOur = scoreMatch[1];
-      cur.finalTheir = scoreMatch[2];
-      continue;
-    }
-
-    // ── 내 골: "-아이두: 1골" / "-아이두: 1 골"
-    const goalMatch = line.match(/아이두[:\s]+(\d+)\s*골/);
-    if (goalMatch) {
-      cur.myGoals = parseInt(goalMatch[1]);
-      continue;
-    }
-
-    // ── 내 어시: "-아이두: 1 어시" / "-아이두: 1어시스트"
-    const assistMatch = line.match(/아이두[:\s]+(\d+)\s*어시/);
-    if (assistMatch) {
-      cur.myAssists = parseInt(assistMatch[1]);
-      continue;
-    }
+    matches.push(newMatch(false, label, opponent, videoLink));
   }
 
-  if (cur) matches.push(cur);
   return { date, place, matches };
 }
 
@@ -180,13 +158,14 @@ function FutsalForm({
   onSaved: () => void;
   addEvent: (e: import('@/types').WorkoutEvent) => void;
 }) {
-  const [team, setTeam] = useState('');
+  // 디폴트: NOVA 팀, 대회
+  const [team, setTeam] = useState<string>('NOVA');
   const [customTeam, setCustomTeam] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [place, setPlace] = useState('');
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
-  const [type, setType] = useState<FutsalType>('훈련');
+  const [type, setType] = useState<FutsalType>('대회');
   const [trainingGoals, setTrainingGoals] = useState(0);
   const [trainingAssists, setTrainingAssists] = useState(0);
   const [finalRank, setFinalRank] = useState('');
@@ -194,7 +173,7 @@ function FutsalForm({
   const [videoLinks, setVideoLinks] = useState<string[]>(['']);
   const [memo, setMemo] = useState('');
 
-  // 붙여넣기 파싱 UI 상태
+  // 붙여넣기 모드
   const [pasteMode, setPasteMode] = useState(false);
   const [pasteText, setPasteText] = useState('');
   const [parseError, setParseError] = useState('');
@@ -209,8 +188,29 @@ function FutsalForm({
     setPasteMode(false);
   };
 
+  // ── 경기 업데이트 헬퍼들
   const updateMatch = (id: string, patch: Partial<MatchInput>) =>
     setMatches((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m)));
+
+  const updateScorer = (matchId: string, scorerId: string, patch: Partial<ScorerInput>) =>
+    setMatches((prev) =>
+      prev.map((m) =>
+        m.id !== matchId ? m : {
+          ...m,
+          scorers: m.scorers.map((s) => s.id === scorerId ? { ...s, ...patch } : s),
+        }
+      )
+    );
+
+  const addScorer = (matchId: string) =>
+    setMatches((prev) =>
+      prev.map((m) => m.id !== matchId ? m : { ...m, scorers: [...m.scorers, newScorer()] })
+    );
+
+  const removeScorer = (matchId: string, scorerId: string) =>
+    setMatches((prev) =>
+      prev.map((m) => m.id !== matchId ? m : { ...m, scorers: m.scorers.filter((s) => s.id !== scorerId) })
+    );
 
   const updateQuarter = (matchId: string, qIdx: number, field: 'our' | 'their', value: number) =>
     setMatches((prev) =>
@@ -245,12 +245,11 @@ function FutsalForm({
   const addVideoLink = () => { if (videoLinks.length < MAX_VIDEO_LINKS) setVideoLinks((prev) => [...prev, '']); };
   const removeVideoLink = (idx: number) => setVideoLinks((prev) => prev.filter((_, i) => i !== idx));
 
-  // 붙여넣기 파싱 실행
   const handleParse = () => {
     setParseError('');
     const parsed = parseTournamentText(pasteText);
     if (!parsed.date && parsed.matches.length === 0) {
-      setParseError('형식을 인식하지 못했어요. 예: "26.05.17 대회명\n예선1 상대팀: https://..."');
+      setParseError('형식을 인식하지 못했어요. 예: "26.05.17 대회명 경기영상\n예선1 상대팀: https://..."');
       return;
     }
     if (parsed.date) setDate(parsed.date);
@@ -261,8 +260,12 @@ function FutsalForm({
     setPasteText('');
   };
 
-  const totalGoals = type === '훈련' ? trainingGoals : matches.reduce((s, m) => s + m.myGoals, 0);
-  const totalAssists = type === '훈련' ? trainingAssists : matches.reduce((s, m) => s + m.myAssists, 0);
+  const totalGoals = type === '훈련'
+    ? trainingGoals
+    : matches.reduce((s, m) => s + m.myGoals, 0);
+  const totalAssists = type === '훈련'
+    ? trainingAssists
+    : matches.reduce((s, m) => s + m.myAssists, 0);
 
   const handleSave = () => {
     const id = `event-${Date.now()}`;
@@ -280,30 +283,40 @@ function FutsalForm({
       assists: totalAssists,
       finalRank: finalRank ? parseInt(finalRank) : undefined,
       matches: showMatches
-        ? matches.map((m) => ({
-            id: m.id,
-            opponent: m.opponent,
-            finalOur: parseInt(m.finalOur) || 0,
-            finalTheir: parseInt(m.finalTheir) || 0,
-            myGoals: m.myGoals,
-            myAssists: m.myAssists,
-            videoLink: m.videoLink || undefined,
-            quarterResults: withQuarters ? m.quarters : undefined,
-          }))
+        ? matches.map((m) => {
+            const ourScore = parseInt(m.finalOur) || 0;
+            const theirScore = parseInt(m.finalTheir) || 0;
+            // PK가 있으면 finalOur/Their를 PK 결과로 표현
+            const pkOur = m.hasPK ? parseInt(m.pkOur) || 0 : undefined;
+            const pkTheir = m.hasPK ? parseInt(m.pkTheir) || 0 : undefined;
+            return {
+              id: m.id,
+              label: m.label || undefined,
+              opponent: m.opponent,
+              finalOur: ourScore,
+              finalTheir: theirScore,
+              pkOur,
+              pkTheir,
+              myGoals: m.myGoals,
+              myAssists: m.myAssists,
+              scorers: m.scorers.filter((s) => s.name.trim()).map((s) => ({ name: s.name, goals: s.goals })),
+              videoLink: m.videoLink || undefined,
+              quarterResults: withQuarters ? m.quarters : undefined,
+            };
+          })
         : undefined,
       videoLinks: videoLinks.filter((l) => l.trim()),
       memo: memo || undefined,
     };
     addEvent(event);
     onSaved();
-    // 폼 초기화
-    setTeam(''); setPlace(''); setMemo(''); setFinalRank('');
-    setMatches([newMatch(false)]); setVideoLinks(['']);
+    setTeam('NOVA'); setPlace(''); setMemo(''); setFinalRank('');
+    setType('대회'); setMatches([newMatch(false)]); setVideoLinks(['']);
   };
 
   return (
     <div className="space-y-4">
-      {/* 대회 붙여넣기 모드 토글 */}
+      {/* 붙여넣기 버튼 */}
       {type === '대회' && !pasteMode && (
         <button
           onClick={() => setPasteMode(true)}
@@ -312,7 +325,7 @@ function FutsalForm({
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
             <rect x="9" y="2" width="6" height="4" rx="1"/><path d="M8 6H6a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V8a2 2 0 00-2-2h-2"/>
           </svg>
-          📋 대회 텍스트 붙여넣기로 입력
+          📋 대회 텍스트 붙여넣기
         </button>
       )}
 
@@ -324,13 +337,12 @@ function FutsalForm({
             <button onClick={() => { setPasteMode(false); setPasteText(''); setParseError(''); }} className="text-xs text-text-tertiary">취소</button>
           </div>
           <p className="text-[10px] text-text-tertiary leading-relaxed">
-            {"26.05.17 대회명 경기영상\n예선1 상대팀: https://..."}
-            형식으로 붙여넣으세요
+            날짜·경기 영상 링크만 붙여넣으면 돼요. 스코어는 다음 단계에서 입력해요.
           </p>
           <textarea
             value={pasteText}
             onChange={(e) => setPasteText(e.target.value)}
-            placeholder={"26.05.17 풋투풋 얼티밋컵 경기영상\n\n예선1 레드문: https://youtu.be/...\n8강 상대팀: https://youtu.be/..."}
+            placeholder={"26.05.17 풋투풋 얼티밋컵 경기영상\n\n예선1 레드문: https://youtu.be/...\n예선2 MUTANT: https://youtu.be/...\n8강 레드문 fc: https://youtu.be/..."}
             rows={8}
             className="w-full bg-white rounded-xl px-3 py-2.5 text-xs text-text-primary outline-none border border-border focus:border-futsal-mid placeholder:text-text-tertiary resize-none font-mono leading-relaxed"
           />
@@ -340,7 +352,7 @@ function FutsalForm({
             disabled={!pasteText.trim()}
             className="w-full py-2.5 bg-futsal text-white rounded-xl text-sm font-semibold disabled:opacity-40 active:scale-95 transition-transform"
           >
-            파싱해서 입력하기
+            경기 목록 파싱하기
           </button>
         </div>
       )}
@@ -348,16 +360,17 @@ function FutsalForm({
       <SelectField label="팀" value={team} onChange={setTeam} options={FUTSAL_TEAMS as unknown as string[]} placeholder="팀 선택" />
       {team === '기타' && <InputField label="팀 이름" value={customTeam} onChange={setCustomTeam} placeholder="팀 이름 입력" />}
       <InputField label="날짜" type="date" value={date} onChange={setDate} />
-      <InputField label="장소" value={place} onChange={setPlace} placeholder="장소 입력" />
+      <InputField label="장소 / 대회명" value={place} onChange={setPlace} placeholder="장소 또는 대회 이름" />
       <div className="grid grid-cols-2 gap-3">
         <InputField label="시작" type="time" value={startTime} onChange={setStartTime} />
         <InputField label="종료" type="time" value={endTime} onChange={setEndTime} />
       </div>
 
+      {/* 유형: 대회 → 친선 → 훈련 순서 */}
       <div>
         <label className="block text-xs font-medium text-text-secondary mb-2">유형</label>
         <div className="flex gap-2">
-          {(['훈련', '대회', '친선경기'] as FutsalType[]).map((t) => (
+          {(['대회', '친선경기', '훈련'] as FutsalType[]).map((t) => (
             <button key={t} onClick={() => setTypeAndReset(t)}
               className={`flex-1 py-2.5 rounded-xl text-sm font-medium transition-all ${
                 type === t ? 'bg-futsal text-white' : 'bg-surface-secondary text-text-secondary'
@@ -397,124 +410,38 @@ function FutsalForm({
         </div>
       )}
 
+      {/* 경기 목록 */}
       {showMatches && (
         <div>
           <div className="flex items-center justify-between mb-2.5">
             <label className="text-xs font-medium text-text-secondary">
-              {type === '대회' ? `경기 목록 (${matches.length})` : '경기 결과'}
+              경기 목록 ({matches.length})
             </label>
-            {type === '대회' && (
-              <button onClick={addMatch} className="text-xs font-medium text-futsal-deep flex items-center gap-1 active:scale-95 transition-transform">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                  <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-                </svg>
-                경기 추가
-              </button>
-            )}
+            <button onClick={addMatch} className="text-xs font-medium text-futsal-deep flex items-center gap-1 active:scale-95 transition-transform">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+              경기 추가
+            </button>
           </div>
 
           <div className="space-y-3">
             {matches.map((m, idx) => (
-              <div key={m.id} className="bg-surface-secondary rounded-2xl p-3.5">
-                {/* 헤더 */}
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    {m.label && (
-                      <span className="text-[10px] font-bold text-white bg-futsal-deep px-2 py-0.5 rounded-full">
-                        {m.label}
-                      </span>
-                    )}
-                    <span className="text-xs font-semibold text-futsal-deep">
-                      {m.label ? '' : `경기 ${idx + 1}`}
-                    </span>
-                  </div>
-                  {matches.length > 1 && (
-                    <button onClick={() => removeMatch(m.id)} className="text-xs text-text-tertiary">삭제</button>
-                  )}
-                </div>
-
-                <input type="text" value={m.opponent}
-                  onChange={(e) => updateMatch(m.id, { opponent: e.target.value })}
-                  placeholder="상대팀 이름"
-                  className="w-full bg-white rounded-xl px-3.5 py-2.5 text-sm text-text-primary outline-none border border-transparent focus:border-futsal-mid placeholder:text-text-tertiary mb-3"
-                />
-
-                {/* 영상 링크 (경기별) */}
-                <div className="mb-3">
-                  <label className="text-[10px] text-text-tertiary mb-1 block">경기 영상 링크</label>
-                  <input type="text" value={m.videoLink}
-                    onChange={(e) => updateMatch(m.id, { videoLink: e.target.value })}
-                    placeholder="https://youtu.be/..."
-                    className="w-full bg-white rounded-xl px-3.5 py-2 text-xs text-text-primary outline-none border border-transparent focus:border-futsal-mid placeholder:text-text-tertiary"
-                  />
-                </div>
-
-                {/* 쿼터 (친선경기) */}
-                {withQuarters && (
-                  <div className="mb-3">
-                    <div className="space-y-2 mb-2">
-                      {m.quarters.map((q, qIdx) => (
-                        <div key={qIdx} className="flex items-center gap-2 bg-white rounded-lg p-2">
-                          <span className="text-xs text-text-tertiary w-8 text-center">Q{q.quarter}</span>
-                          <input type="number" min={0} value={q.our}
-                            onChange={(e) => updateQuarter(m.id, qIdx, 'our', parseInt(e.target.value) || 0)}
-                            className="w-12 text-center rounded-md py-1 text-sm font-medium border border-border outline-none focus:border-futsal-mid"
-                          />
-                          <span className="text-text-tertiary text-xs">vs</span>
-                          <input type="number" min={0} value={q.their}
-                            onChange={(e) => updateQuarter(m.id, qIdx, 'their', parseInt(e.target.value) || 0)}
-                            className="w-12 text-center rounded-md py-1 text-sm font-medium border border-border outline-none focus:border-futsal-mid"
-                          />
-                        </div>
-                      ))}
-                    </div>
-                    <div className="flex gap-1.5">
-                      <button onClick={() => addQuarter(m.id)} className="flex-1 py-1.5 text-[11px] font-medium text-futsal-deep bg-futsal-light rounded-lg active:scale-95 transition-transform">+ 쿼터 추가</button>
-                      {m.quarters.length > 1 && (
-                        <button onClick={() => removeQuarter(m.id)} className="flex-1 py-1.5 text-[11px] font-medium text-text-tertiary bg-white rounded-lg active:scale-95 transition-transform">− 쿼터 제거</button>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* 최종 스코어 */}
-                <div className={withQuarters ? 'pt-3 border-t border-border' : ''}>
-                  <p className="text-[10px] text-text-tertiary mb-2 tracking-wide">최종 스코어</p>
-                  <div className="flex items-center gap-2 mb-3">
-                    <input type="number" min={0} value={m.finalOur}
-                      onChange={(e) => updateMatch(m.id, { finalOur: e.target.value })}
-                      placeholder="0"
-                      className="flex-1 text-center bg-white rounded-lg py-2 text-base font-bold border border-border outline-none focus:border-futsal-mid"
-                    />
-                    <span className="text-text-tertiary font-medium">:</span>
-                    <input type="number" min={0} value={m.finalTheir}
-                      onChange={(e) => updateMatch(m.id, { finalTheir: e.target.value })}
-                      placeholder="0"
-                      className="flex-1 text-center bg-white rounded-lg py-2 text-base font-bold border border-border outline-none focus:border-futsal-mid"
-                    />
-                  </div>
-                </div>
-
-                {/* 내 골 / 어시 */}
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="bg-white rounded-xl px-2 py-2">
-                    <p className="text-[10px] text-text-tertiary mb-1 text-center">내 골</p>
-                    <div className="flex items-center justify-between">
-                      <StepBtn onClick={() => updateMatch(m.id, { myGoals: Math.max(0, m.myGoals - 1) })} icon="minus" color="futsal" />
-                      <span className="text-base font-bold text-text-primary tabular-nums">{m.myGoals}</span>
-                      <StepBtn onClick={() => updateMatch(m.id, { myGoals: m.myGoals + 1 })} icon="plus" color="futsal" />
-                    </div>
-                  </div>
-                  <div className="bg-white rounded-xl px-2 py-2">
-                    <p className="text-[10px] text-text-tertiary mb-1 text-center">어시스트</p>
-                    <div className="flex items-center justify-between">
-                      <StepBtn onClick={() => updateMatch(m.id, { myAssists: Math.max(0, m.myAssists - 1) })} icon="minus" color="futsal" />
-                      <span className="text-base font-bold text-text-primary tabular-nums">{m.myAssists}</span>
-                      <StepBtn onClick={() => updateMatch(m.id, { myAssists: m.myAssists + 1 })} icon="plus" color="futsal" />
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <MatchCard
+                key={m.id}
+                match={m}
+                idx={idx}
+                withQuarters={withQuarters}
+                canRemove={matches.length > 1}
+                onRemove={() => removeMatch(m.id)}
+                onUpdate={(patch) => updateMatch(m.id, patch)}
+                onUpdateScorer={(sid, patch) => updateScorer(m.id, sid, patch)}
+                onAddScorer={() => addScorer(m.id)}
+                onRemoveScorer={(sid) => removeScorer(m.id, sid)}
+                onUpdateQuarter={(qIdx, field, val) => updateQuarter(m.id, qIdx, field, val)}
+                onAddQuarter={() => addQuarter(m.id)}
+                onRemoveQuarter={() => removeQuarter(m.id)}
+              />
             ))}
           </div>
 
@@ -526,7 +453,7 @@ function FutsalForm({
         </div>
       )}
 
-      {/* 세션 영상 링크 (대회 전체) */}
+      {/* 대표 영상 링크 */}
       <div>
         <div className="flex items-center justify-between mb-1.5">
           <label className="text-xs font-medium text-text-secondary">대표 영상 링크 ({videoLinks.length}/{MAX_VIDEO_LINKS})</label>
@@ -564,6 +491,239 @@ function FutsalForm({
       >
         저장하기
       </button>
+    </div>
+  );
+}
+
+// ── 경기 카드 ─────────────────────────────────────────────
+function MatchCard({
+  match: m,
+  idx,
+  withQuarters,
+  canRemove,
+  onRemove,
+  onUpdate,
+  onUpdateScorer,
+  onAddScorer,
+  onRemoveScorer,
+  onUpdateQuarter,
+  onAddQuarter,
+  onRemoveQuarter,
+}: {
+  match: MatchInput;
+  idx: number;
+  withQuarters: boolean;
+  canRemove: boolean;
+  onRemove: () => void;
+  onUpdate: (patch: Partial<MatchInput>) => void;
+  onUpdateScorer: (id: string, patch: Partial<ScorerInput>) => void;
+  onAddScorer: () => void;
+  onRemoveScorer: (id: string) => void;
+  onUpdateQuarter: (qIdx: number, field: 'our' | 'their', val: number) => void;
+  onAddQuarter: () => void;
+  onRemoveQuarter: () => void;
+}) {
+  const our = parseInt(m.finalOur) || 0;
+  const their = parseInt(m.finalTheir) || 0;
+  const result = m.finalOur !== '' && m.finalTheir !== ''
+    ? (m.hasPK
+        ? (parseInt(m.pkOur) || 0) > (parseInt(m.pkTheir) || 0) ? '승' : '패'
+        : our > their ? '승' : our === their ? '무' : '패')
+    : null;
+  const resultColor = result === '승' ? 'text-futsal-deep' : result === '패' ? 'text-red-400' : 'text-text-tertiary';
+
+  return (
+    <div className="bg-surface-secondary rounded-2xl p-3.5 space-y-3">
+      {/* 헤더 */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {m.label && (
+            <span className="text-[10px] font-bold text-white bg-futsal-deep px-2 py-0.5 rounded-full">
+              {m.label}
+            </span>
+          )}
+          {result && (
+            <span className={`text-xs font-bold ${resultColor}`}>
+              {result} {m.finalOur}:{m.finalTheir}
+              {m.hasPK && ` (PK ${m.pkOur}:${m.pkTheir})`}
+            </span>
+          )}
+        </div>
+        {canRemove && (
+          <button onClick={onRemove} className="text-xs text-text-tertiary">삭제</button>
+        )}
+      </div>
+
+      {/* 상대팀 */}
+      <input type="text" value={m.opponent}
+        onChange={(e) => onUpdate({ opponent: e.target.value })}
+        placeholder={`경기 ${idx + 1} 상대팀`}
+        className="w-full bg-white rounded-xl px-3.5 py-2.5 text-sm text-text-primary outline-none border border-transparent focus:border-futsal-mid placeholder:text-text-tertiary"
+      />
+
+      {/* 영상 링크 */}
+      {m.videoLink && (
+        <div className="flex items-center gap-2 bg-white rounded-xl px-3 py-2">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2" strokeLinecap="round">
+            <polygon points="5 3 19 12 5 21 5 3"/>
+          </svg>
+          <input type="text" value={m.videoLink}
+            onChange={(e) => onUpdate({ videoLink: e.target.value })}
+            className="flex-1 text-xs text-text-secondary outline-none bg-transparent"
+          />
+        </div>
+      )}
+      {!m.videoLink && (
+        <input type="text" value={m.videoLink}
+          onChange={(e) => onUpdate({ videoLink: e.target.value })}
+          placeholder="경기 영상 링크 (선택)"
+          className="w-full bg-white rounded-xl px-3.5 py-2 text-xs text-text-secondary outline-none border border-transparent focus:border-futsal-mid placeholder:text-text-tertiary"
+        />
+      )}
+
+      {/* 쿼터 (친선경기) */}
+      {withQuarters && (
+        <div>
+          <p className="text-[10px] text-text-tertiary mb-2">쿼터별 스코어</p>
+          <div className="space-y-1.5 mb-2">
+            {m.quarters.map((q, qIdx) => (
+              <div key={qIdx} className="flex items-center gap-2 bg-white rounded-lg p-2">
+                <span className="text-xs text-text-tertiary w-6 text-center">Q{q.quarter}</span>
+                <input type="number" min={0} value={q.our}
+                  onChange={(e) => onUpdateQuarter(qIdx, 'our', parseInt(e.target.value) || 0)}
+                  className="w-12 text-center rounded-md py-1 text-sm font-medium border border-border outline-none focus:border-futsal-mid"
+                />
+                <span className="text-text-tertiary text-xs">:</span>
+                <input type="number" min={0} value={q.their}
+                  onChange={(e) => onUpdateQuarter(qIdx, 'their', parseInt(e.target.value) || 0)}
+                  className="w-12 text-center rounded-md py-1 text-sm font-medium border border-border outline-none focus:border-futsal-mid"
+                />
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-1.5">
+            <button onClick={onAddQuarter} className="flex-1 py-1.5 text-[11px] font-medium text-futsal-deep bg-futsal-light rounded-lg">+ 쿼터 추가</button>
+            {m.quarters.length > 1 && (
+              <button onClick={onRemoveQuarter} className="flex-1 py-1.5 text-[11px] font-medium text-text-tertiary bg-white rounded-lg">− 제거</button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── 최종 스코어 */}
+      <div>
+        <p className="text-[10px] text-text-tertiary mb-1.5 font-medium">최종 스코어</p>
+        <div className="flex items-center gap-2">
+          <input type="number" min={0} value={m.finalOur}
+            onChange={(e) => onUpdate({ finalOur: e.target.value })}
+            placeholder="0"
+            className="flex-1 text-center bg-white rounded-xl py-3 text-xl font-bold border border-border outline-none focus:border-futsal-mid"
+          />
+          <span className="text-text-tertiary font-bold text-lg">:</span>
+          <input type="number" min={0} value={m.finalTheir}
+            onChange={(e) => onUpdate({ finalTheir: e.target.value })}
+            placeholder="0"
+            className="flex-1 text-center bg-white rounded-xl py-3 text-xl font-bold border border-border outline-none focus:border-futsal-mid"
+          />
+        </div>
+      </div>
+
+      {/* ── 승부차기 */}
+      <div>
+        <button
+          onClick={() => onUpdate({ hasPK: !m.hasPK, pkOur: '', pkTheir: '' })}
+          className={`flex items-center gap-2 text-xs font-medium px-3 py-1.5 rounded-full transition-all ${
+            m.hasPK ? 'bg-amber-100 text-amber-800' : 'bg-white text-text-tertiary'
+          }`}
+        >
+          <span className="text-base leading-none">🎯</span>
+          승부차기
+          {m.hasPK && ' ✓'}
+        </button>
+        {m.hasPK && (
+          <div className="mt-2 flex items-center gap-2">
+            <span className="text-[10px] text-text-tertiary w-14">PK 스코어</span>
+            <input type="number" min={0} value={m.pkOur}
+              onChange={(e) => onUpdate({ pkOur: e.target.value })}
+              placeholder="0"
+              className="flex-1 text-center bg-white rounded-xl py-2 text-base font-bold border border-amber-200 outline-none focus:border-amber-400"
+            />
+            <span className="text-text-tertiary font-bold">:</span>
+            <input type="number" min={0} value={m.pkTheir}
+              onChange={(e) => onUpdate({ pkTheir: e.target.value })}
+              placeholder="0"
+              className="flex-1 text-center bg-white rounded-xl py-2 text-base font-bold border border-amber-200 outline-none focus:border-amber-400"
+            />
+          </div>
+        )}
+      </div>
+
+      {/* ── 득점자 */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-[10px] text-text-tertiary font-medium">득점자</p>
+          <button onClick={onAddScorer} className="text-[11px] text-futsal-deep font-medium flex items-center gap-0.5">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            득점자 추가
+          </button>
+        </div>
+        {m.scorers.length === 0 && (
+          <p className="text-[11px] text-text-tertiary text-center py-1.5">득점자 없음 또는 미입력</p>
+        )}
+        <div className="space-y-1.5">
+          {m.scorers.map((s) => (
+            <div key={s.id} className="flex items-center gap-2 bg-white rounded-xl px-3 py-2">
+              <input
+                type="text"
+                value={s.name}
+                onChange={(e) => onUpdateScorer(s.id, { name: e.target.value })}
+                placeholder="이름"
+                className="flex-1 text-sm outline-none bg-transparent text-text-primary placeholder:text-text-tertiary"
+              />
+              <div className="flex items-center gap-1.5">
+                <button onClick={() => onUpdateScorer(s.id, { goals: Math.max(1, s.goals - 1) })}
+                  className="w-6 h-6 rounded-lg bg-futsal-light text-futsal-deep flex items-center justify-center text-sm font-bold"
+                >−</button>
+                <span className="text-sm font-bold text-futsal-deep w-4 text-center tabular-nums">{s.goals}</span>
+                <button onClick={() => onUpdateScorer(s.id, { goals: s.goals + 1 })}
+                  className="w-6 h-6 rounded-lg bg-futsal-light text-futsal-deep flex items-center justify-center text-sm font-bold"
+                >+</button>
+                <span className="text-[10px] text-text-tertiary ml-0.5">골</span>
+              </div>
+              <button onClick={() => onRemoveScorer(s.id)} className="text-text-tertiary ml-1">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── 아이두 기록 (골 + 어시) */}
+      <div>
+        <p className="text-[10px] text-text-tertiary font-medium mb-2">내 기록 (아이두)</p>
+        <div className="grid grid-cols-2 gap-2">
+          <div className="bg-white rounded-xl px-2 py-2">
+            <p className="text-[10px] text-text-tertiary mb-1 text-center">⚽ 골</p>
+            <div className="flex items-center justify-between">
+              <StepBtn onClick={() => onUpdate({ myGoals: Math.max(0, m.myGoals - 1) })} icon="minus" color="futsal" />
+              <span className="text-base font-bold text-text-primary tabular-nums">{m.myGoals}</span>
+              <StepBtn onClick={() => onUpdate({ myGoals: m.myGoals + 1 })} icon="plus" color="futsal" />
+            </div>
+          </div>
+          <div className="bg-white rounded-xl px-2 py-2">
+            <p className="text-[10px] text-text-tertiary mb-1 text-center">🅰️ 어시스트</p>
+            <div className="flex items-center justify-between">
+              <StepBtn onClick={() => onUpdate({ myAssists: Math.max(0, m.myAssists - 1) })} icon="minus" color="futsal" />
+              <span className="text-base font-bold text-text-primary tabular-nums">{m.myAssists}</span>
+              <StepBtn onClick={() => onUpdate({ myAssists: m.myAssists + 1 })} icon="plus" color="futsal" />
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

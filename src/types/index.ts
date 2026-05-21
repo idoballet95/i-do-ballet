@@ -40,6 +40,8 @@ export interface MatchResult {
   label?: string;          // 예선1, 8강, 4강, 3·4위전 등
   finalOur: number;
   finalTheir: number;
+  pkOur?: number;          // 승부차기 득점
+  pkTheir?: number;
   myGoals: number;
   myAssists: number;
   scorers?: MatchScorer[];
