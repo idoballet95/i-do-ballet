@@ -58,12 +58,13 @@ function newScorer(): ScorerInput {
 }
 
 // ── 붙여넣기 파서 (URL+라운드+상대팀만 파악, 스코어는 다음 단계에서 입력)
+// 지원: "예선1 레드문: https://..." / "예선 2 MUTANT : https://..." / "8강 레드문 fc : https://..."
 function parseTournamentText(text: string): {
   date: string;
   place: string;
   matches: MatchInput[];
 } {
-  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   if (lines.length === 0) return { date: '', place: '', matches: [] };
 
   const firstLine = lines[0];
@@ -80,18 +81,46 @@ function parseTournamentText(text: string): {
 
   const matches: MatchInput[] = [];
   for (const line of lines.slice(1)) {
-    const urlMatch = line.match(/(https?:\/\/\S+)/);
-    if (!urlMatch) continue;
-    const videoLink = urlMatch[1];
-    const beforeUrl = line.slice(0, line.indexOf(videoLink)).trim().replace(/:?\s*$/, '').trim();
-    const labelMatch = beforeUrl.match(/^(예선\s*\d+|8강|16강|4강|준결승|결승|3\.?4위전|3위전|조별리그\s*\d*|\S{1,6})\s+(.+)$/i);
+    // URL 시작 위치 탐색 (indexOf 대신 search 사용)
+    const httpIdx = line.search(/https?:\/\//);
+    if (httpIdx === -1) continue;
+
+    const videoLink = line.slice(httpIdx).trim();
+    // URL 앞 텍스트: 공백·콜론 제거
+    const beforeUrl = line.slice(0, httpIdx).replace(/[\s:]+$/, '').trim();
+
+    if (!beforeUrl) {
+      matches.push(newMatch(false, '', '', videoLink));
+      continue;
+    }
+
+    // 라운드명 패턴 — 첫 1~2토큰이 라운드명인지 검사
+    // e.g. "예선1 레드문" / "예선 2 MUTANT" / "8강 레드문 fc" / "3.4위전 PELTA"
+    const tokens = beforeUrl.split(/\s+/);
     let label = '';
     let opponent = beforeUrl;
-    if (labelMatch) {
-      label = labelMatch[1].replace(/\s/g, '');
-      opponent = labelMatch[2].trim();
+
+    const ROUND_RE = /^(예선\d*|8강|16강|4강|준결승|결승|3\.?4위전|3위전|조별리그\d*)$/i;
+
+    if (tokens.length >= 2) {
+      // 첫 토큰이 라운드명인지 ("8강", "4강", "결승" 등)
+      if (ROUND_RE.test(tokens[0])) {
+        label = tokens[0];
+        opponent = tokens.slice(1).join(' ');
+      }
+      // 두 토큰이 합쳐서 라운드명인지 ("예선 2", "조별리그 1" 등)
+      else if (tokens.length >= 3 && ROUND_RE.test(tokens[0] + tokens[1])) {
+        label = tokens[0] + tokens[1];
+        opponent = tokens.slice(2).join(' ');
+      }
+      // "예선" + 숫자 분리형 ("예선 2 MUTANT")
+      else if (/^예선$/.test(tokens[0]) && /^\d+$/.test(tokens[1])) {
+        label = tokens[0] + tokens[1]; // "예선2"
+        opponent = tokens.slice(2).join(' ');
+      }
     }
-    matches.push(newMatch(false, label, opponent, videoLink));
+
+    matches.push(newMatch(false, label, opponent || beforeUrl, videoLink));
   }
 
   return { date, place, matches };
@@ -614,17 +643,23 @@ function MatchCard({
       <div>
         <p className="text-[10px] text-text-tertiary mb-1.5 font-medium">최종 스코어</p>
         <div className="flex items-center gap-2">
-          <input type="number" min={0} value={m.finalOur}
-            onChange={(e) => onUpdate({ finalOur: e.target.value })}
-            placeholder="0"
-            className="flex-1 text-center bg-white rounded-xl py-3 text-xl font-bold border border-border outline-none focus:border-futsal-mid"
-          />
-          <span className="text-text-tertiary font-bold text-lg">:</span>
-          <input type="number" min={0} value={m.finalTheir}
-            onChange={(e) => onUpdate({ finalTheir: e.target.value })}
-            placeholder="0"
-            className="flex-1 text-center bg-white rounded-xl py-3 text-xl font-bold border border-border outline-none focus:border-futsal-mid"
-          />
+          <div className="flex-1 flex flex-col items-center gap-1">
+            <span className="text-[10px] font-bold text-futsal-deep">NOVA</span>
+            <input type="number" min={0} value={m.finalOur}
+              onChange={(e) => onUpdate({ finalOur: e.target.value })}
+              placeholder="0"
+              className="w-full text-center bg-white rounded-xl py-3 text-xl font-bold border border-futsal-mid/40 outline-none focus:border-futsal-mid"
+            />
+          </div>
+          <span className="text-text-tertiary font-bold text-lg mt-4">:</span>
+          <div className="flex-1 flex flex-col items-center gap-1">
+            <span className="text-[10px] font-medium text-text-tertiary">{m.opponent || '상대'}</span>
+            <input type="number" min={0} value={m.finalTheir}
+              onChange={(e) => onUpdate({ finalTheir: e.target.value })}
+              placeholder="0"
+              className="w-full text-center bg-white rounded-xl py-3 text-xl font-bold border border-border outline-none focus:border-futsal-mid"
+            />
+          </div>
         </div>
       </div>
 
@@ -642,18 +677,23 @@ function MatchCard({
         </button>
         {m.hasPK && (
           <div className="mt-2 flex items-center gap-2">
-            <span className="text-[10px] text-text-tertiary w-14">PK 스코어</span>
-            <input type="number" min={0} value={m.pkOur}
-              onChange={(e) => onUpdate({ pkOur: e.target.value })}
-              placeholder="0"
-              className="flex-1 text-center bg-white rounded-xl py-2 text-base font-bold border border-amber-200 outline-none focus:border-amber-400"
-            />
-            <span className="text-text-tertiary font-bold">:</span>
-            <input type="number" min={0} value={m.pkTheir}
-              onChange={(e) => onUpdate({ pkTheir: e.target.value })}
-              placeholder="0"
-              className="flex-1 text-center bg-white rounded-xl py-2 text-base font-bold border border-amber-200 outline-none focus:border-amber-400"
-            />
+            <div className="flex-1 flex flex-col items-center gap-1">
+              <span className="text-[10px] font-bold text-futsal-deep">NOVA PK</span>
+              <input type="number" min={0} value={m.pkOur}
+                onChange={(e) => onUpdate({ pkOur: e.target.value })}
+                placeholder="0"
+                className="w-full text-center bg-white rounded-xl py-2 text-base font-bold border border-amber-200 outline-none focus:border-amber-400"
+              />
+            </div>
+            <span className="text-text-tertiary font-bold mt-4">:</span>
+            <div className="flex-1 flex flex-col items-center gap-1">
+              <span className="text-[10px] font-medium text-text-tertiary">{m.opponent || '상대'} PK</span>
+              <input type="number" min={0} value={m.pkTheir}
+                onChange={(e) => onUpdate({ pkTheir: e.target.value })}
+                placeholder="0"
+                className="w-full text-center bg-white rounded-xl py-2 text-base font-bold border border-amber-200 outline-none focus:border-amber-400"
+              />
+            </div>
           </div>
         )}
       </div>
