@@ -40,6 +40,12 @@ function newMatch(withQuarters: boolean, label = ''): MatchInput {
 }
 
 // ── 붙여넣기 파서 ──────────────────────────────────────────
+// 지원 형식:
+//   26.05.17 대회명 경기영상
+//   예선1 레드문: https://youtu.be/...
+//   -최종: 4:0 승
+//   -아이두: 1골
+//   -아이두: 1 어시
 function parseTournamentText(text: string): {
   date: string;
   place: string;
@@ -62,36 +68,54 @@ function parseTournamentText(text: string): {
   }
 
   const matches: MatchInput[] = [];
+  let cur: MatchInput | null = null;
+
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i];
+
+    // ── 경기 라인 (URL 포함)
     const urlMatch = line.match(/(https?:\/\/\S+)/);
-    if (!urlMatch) continue;
-
-    const videoLink = urlMatch[1];
-    const beforeUrl = line.slice(0, line.indexOf(videoLink)).trim().replace(/:?\s*$/, '').trim();
-
-    // "예선1 레드문", "8강 레드문 fc", "3.4위전 PELTA"
-    const labelMatch = beforeUrl.match(/^(예선\s*\d+|8강|4강|준결승|결승|3\.?4위전|조별리그\s*\d*|\S{1,6})\s+(.+)$/i);
-    let label = '';
-    let opponent = beforeUrl;
-    if (labelMatch) {
-      label = labelMatch[1].replace(/\s/g, '');
-      opponent = labelMatch[2].trim();
+    if (urlMatch) {
+      if (cur) matches.push(cur);
+      const videoLink = urlMatch[1];
+      const beforeUrl = line.slice(0, line.indexOf(videoLink)).trim().replace(/:?\s*$/, '').trim();
+      const labelMatch = beforeUrl.match(/^(예선\s*\d+|8강|16강|4강|준결승|결승|3\.?4위전|3위전|조별리그\s*\d*|\S{1,6})\s+(.+)$/i);
+      let label = '';
+      let opponent = beforeUrl;
+      if (labelMatch) {
+        label = labelMatch[1].replace(/\s/g, '');
+        opponent = labelMatch[2].trim();
+      }
+      cur = { id: Math.random().toString(36).slice(2), label, opponent, finalOur: '', finalTheir: '', myGoals: 0, myAssists: 0, videoLink, quarters: [] };
+      continue;
     }
 
-    matches.push({
-      id: Math.random().toString(36).slice(2),
-      label,
-      opponent,
-      finalOur: '',
-      finalTheir: '',
-      myGoals: 0,
-      myAssists: 0,
-      videoLink,
-      quarters: [],
-    });
+    if (!cur) continue;
+
+    // ── 최종 스코어: "-최종: 4:0 승" / "최종: 1:0"
+    const scoreMatch = line.match(/최종[:\s]+(\d+)\s*:\s*(\d+)/);
+    if (scoreMatch) {
+      cur.finalOur = scoreMatch[1];
+      cur.finalTheir = scoreMatch[2];
+      continue;
+    }
+
+    // ── 내 골: "-아이두: 1골" / "-아이두: 1 골"
+    const goalMatch = line.match(/아이두[:\s]+(\d+)\s*골/);
+    if (goalMatch) {
+      cur.myGoals = parseInt(goalMatch[1]);
+      continue;
+    }
+
+    // ── 내 어시: "-아이두: 1 어시" / "-아이두: 1어시스트"
+    const assistMatch = line.match(/아이두[:\s]+(\d+)\s*어시/);
+    if (assistMatch) {
+      cur.myAssists = parseInt(assistMatch[1]);
+      continue;
+    }
   }
 
+  if (cur) matches.push(cur);
   return { date, place, matches };
 }
 
