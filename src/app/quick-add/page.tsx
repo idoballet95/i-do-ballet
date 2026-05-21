@@ -102,22 +102,30 @@ function parseTournamentText(text: string): {
   }
 
   const matches: MatchInput[] = [];
+  let pendingText = ''; // 이전 줄에 있던 라운드+상대팀 텍스트
+
   for (const line of lines.slice(1)) {
-    // "LABEL OPPONENT : https://URL" or "LABEL OPPONENT: https://URL"
-    // 비탐욕 매칭으로 첫 콜론+URL 구분
-    const lineMatch = line.match(/^(.*?)\s*:?\s*(https?:\/\/\S+)\s*$/);
-    if (!lineMatch) continue;
+    const httpIdx = line.indexOf('http');
 
-    const beforeUrl = lineMatch[1].trim();
-    const videoLink = lineMatch[2].trim();
-
-    if (!beforeUrl) {
-      matches.push(newMatch(false, '', '', videoLink));
+    if (httpIdx === -1) {
+      // URL 없는 줄 → 다음 URL 줄을 위한 라운드/상대팀 텍스트로 저장
+      const clean = line.replace(/[\s:：：]+$/, '').trim();
+      if (clean) pendingText = clean;
       continue;
     }
 
-    const { label, opponent } = splitLabelOpponent(beforeUrl);
-    matches.push(newMatch(false, label, opponent, videoLink));
+    // URL 있는 줄
+    const videoLink = line.slice(httpIdx).trim();
+    // 같은 줄에 URL 앞 텍스트가 있으면 사용, 없으면 이전 줄(pendingText) 사용
+    const inlineText = line.slice(0, httpIdx).replace(/[\s:：：]+$/, '').trim();
+    const labelOpponentText = inlineText || pendingText;
+    pendingText = ''; // 사용했으면 초기화
+
+    const { label, opponent } = labelOpponentText
+      ? splitLabelOpponent(labelOpponentText)
+      : { label: '', opponent: '' };
+
+    matches.push(newMatch(false, label, opponent || labelOpponentText, videoLink));
   }
 
   return { date, place, matches };
