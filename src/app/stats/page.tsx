@@ -53,7 +53,7 @@ export default function StatsPage() {
   const [editingEvent, setEditingEvent] = useState<WorkoutEvent | null>(null);
 
   const novaMatches: MatchPoint[] = useMemo(
-    () => collectMatches(events, (s) => s.team === 'NOVA'),
+    () => collectMatches(events, (s) => s.team === 'NOVA' || s.team === '버뮤다'),
     [events]
   );
   const myMatches: MatchPoint[] = useMemo(() => collectMatches(events, () => true), [events]);
