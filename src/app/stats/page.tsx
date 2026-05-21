@@ -2,8 +2,9 @@
 
 import { useMemo, useState } from 'react';
 import { useEvents } from '@/lib/events-store';
-import type { FutsalSession, MatchResult, MatchScorer } from '@/types';
+import type { FutsalSession, MatchResult, MatchScorer, WorkoutEvent } from '@/types';
 import Avatar from '@/components/Avatar';
+import EditEventSheet from '@/components/EditEventSheet';
 
 function isFutsal(e: { category: string }): e is FutsalSession {
   return e.category === 'futsal';
@@ -21,6 +22,7 @@ type FutsalKind = '대회' | '친선경기';
 
 interface MatchPoint {
   date: string;
+  matchId: string;
   opponent: string;
   our: number;
   their: number;
@@ -48,12 +50,18 @@ interface TournamentInfo {
 export default function StatsPage() {
   const { events } = useEvents();
   const [tab, setTab] = useState<Tab>('nova');
+  const [editingEvent, setEditingEvent] = useState<WorkoutEvent | null>(null);
 
   const novaMatches: MatchPoint[] = useMemo(
     () => collectMatches(events, (s) => s.team === 'NOVA'),
     [events]
   );
   const myMatches: MatchPoint[] = useMemo(() => collectMatches(events, () => true), [events]);
+
+  const handleEditSession = (sessionId: string) => {
+    const found = events.find((e) => e.id === sessionId) ?? null;
+    setEditingEvent(found);
+  };
 
   return (
     <div className="animate-fade-in-up">
@@ -92,8 +100,29 @@ export default function StatsPage() {
           </button>
         </div>
 
-        {tab === 'nova' ? <NovaView matches={novaMatches} /> : <MeView matches={myMatches} />}
+        {tab === 'nova' ? (
+          <NovaView matches={novaMatches} onEditSession={handleEditSession} />
+        ) : (
+          <MeView matches={myMatches} onEditSession={handleEditSession} />
+        )}
       </div>
+
+      {/* Edit sheet overlay */}
+      {editingEvent && (
+        <div className="fixed inset-0 z-[100] animate-fade-in">
+          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={() => setEditingEvent(null)} />
+          <div className="absolute bottom-0 left-0 right-0 max-w-lg mx-auto max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-white rounded-t-3xl px-6 pt-3 pb-8 safe-bottom animate-slide-up">
+              <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-5" />
+              <EditEventSheet
+                event={editingEvent}
+                onClose={() => setEditingEvent(null)}
+                onSaved={() => setEditingEvent(null)}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -110,6 +139,7 @@ function collectMatches(events: import('@/types').WorkoutEvent[], filter: (s: Fu
         const their = matchTheir(m);
         out.push({
           date: s.date,
+          matchId: m.id,
           opponent: m.opponent,
           our,
           their,
@@ -132,7 +162,7 @@ function collectMatches(events: import('@/types').WorkoutEvent[], filter: (s: Fu
 
 // ─────────────────────────────────────── NOVA
 
-function NovaView({ matches }: { matches: MatchPoint[] }) {
+function NovaView({ matches, onEditSession }: { matches: MatchPoint[]; onEditSession: (id: string) => void }) {
   const [kind, setKind] = useState<FutsalKind>('대회');
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
@@ -259,7 +289,7 @@ function NovaView({ matches }: { matches: MatchPoint[] }) {
 
             <ChartCard
               title={perfTitle}
-              subtitle={selectedSessionId ? '경기 목록 · 득점자' : '전체 경기'}
+              subtitle={selectedSessionId ? '경기 목록 · 탭해서 수정' : '전체 경기'}
               headerRight={
                 selectedSessionId ? (
                   <button
@@ -271,7 +301,7 @@ function NovaView({ matches }: { matches: MatchPoint[] }) {
                 ) : undefined
               }
             >
-              <PerformanceList matches={performanceMatches} />
+              <PerformanceList matches={performanceMatches} onEdit={onEditSession} />
             </ChartCard>
           </div>
 
@@ -287,7 +317,7 @@ function NovaView({ matches }: { matches: MatchPoint[] }) {
 
 // ─────────────────────────────────────── 아이두
 
-function MeView({ matches }: { matches: MatchPoint[] }) {
+function MeView({ matches, onEditSession: _onEditSession }: { matches: MatchPoint[]; onEditSession: (id: string) => void }) {
   const tour = matches.filter((m) => m.type === '대회');
   const friend = matches.filter((m) => m.type === '친선경기');
 
@@ -549,7 +579,7 @@ function formatYear(dateStr: string) {
 
 // ─────────────────────────────────────── Performance list
 
-function PerformanceList({ matches }: { matches: MatchPoint[] }) {
+function PerformanceList({ matches, onEdit }: { matches: MatchPoint[]; onEdit?: (sessionId: string) => void }) {
   if (matches.length === 0)
     return <p className="text-xs text-text-tertiary text-center py-6">기록이 없어요</p>;
 
@@ -598,7 +628,7 @@ function PerformanceList({ matches }: { matches: MatchPoint[] }) {
               ? 'text-red-400'
               : 'text-text-secondary';
           return (
-            <div key={i} className="flex items-center bg-white rounded-xl px-3 py-2.5 gap-3">
+            <div key={i} className="flex items-center bg-white rounded-xl px-3 py-2.5 gap-3 active:scale-[0.99] transition-transform">
               <span className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold flex-shrink-0 ${bg}`}>
                 {m.result}
               </span>
@@ -627,9 +657,23 @@ function PerformanceList({ matches }: { matches: MatchPoint[] }) {
                   </a>
                 )}
               </div>
-              <span className={`text-base font-bold tabular-nums ${scoreTint}`}>
-                {m.our} : {m.their}
-              </span>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <span className={`text-base font-bold tabular-nums ${scoreTint}`}>
+                  {m.our} : {m.their}
+                </span>
+                {onEdit && (
+                  <button
+                    onClick={() => onEdit(m.sessionId)}
+                    className="w-7 h-7 rounded-lg bg-surface-secondary flex items-center justify-center active:scale-90 transition-transform"
+                    title="수정하기"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2.5" strokeLinecap="round">
+                      <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+                      <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                    </svg>
+                  </button>
+                )}
+              </div>
             </div>
           );
         })}
