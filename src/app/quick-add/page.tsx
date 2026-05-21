@@ -57,6 +57,28 @@ function newScorer(): ScorerInput {
   return { id: Math.random().toString(36).slice(2), name: '', goals: 1 };
 }
 
+// ── 라운드명 + 상대팀 분리
+// "예선1 레드문" → {label:"예선1", opponent:"레드문"}
+// "예선 2 MUTANT" → {label:"예선2", opponent:"MUTANT"}
+// "8강 레드문 fc" → {label:"8강", opponent:"레드문 fc"}
+// "3.4위전 PELTA" → {label:"3.4위전", opponent:"PELTA"}
+function splitLabelOpponent(text: string): { label: string; opponent: string } {
+  // 패턴1: "예선N 상대팀" (숫자 붙어있는 경우)
+  let m = text.match(/^(예선\d+)\s+(.+)$/);
+  if (m) return { label: m[1], opponent: m[2] };
+
+  // 패턴2: "예선 N 상대팀" (예선 + 숫자 분리)
+  m = text.match(/^(예선)\s+(\d+)\s+(.+)$/);
+  if (m) return { label: m[1] + m[2], opponent: m[3] };
+
+  // 패턴3: 단어 라운드명 + 상대팀 ("8강 레드문 fc" / "4강 ARX" / "결승 ..." / "3.4위전 PELTA")
+  m = text.match(/^(8강|16강|4강|준결승|결승|3위전|3\.?4위전|3·4위전|조별리그\s*\d*)\s+(.+)$/i);
+  if (m) return { label: m[1].replace(/\s/g, ''), opponent: m[2] };
+
+  // 매칭 실패 → 전체가 상대팀
+  return { label: '', opponent: text };
+}
+
 // ── 붙여넣기 파서 (URL+라운드+상대팀만 파악, 스코어는 다음 단계에서 입력)
 // 지원: "예선1 레드문: https://..." / "예선 2 MUTANT : https://..." / "8강 레드문 fc : https://..."
 function parseTournamentText(text: string): {
@@ -81,46 +103,21 @@ function parseTournamentText(text: string): {
 
   const matches: MatchInput[] = [];
   for (const line of lines.slice(1)) {
-    // URL 시작 위치 탐색 (indexOf 대신 search 사용)
-    const httpIdx = line.search(/https?:\/\//);
-    if (httpIdx === -1) continue;
+    // "LABEL OPPONENT : https://URL" or "LABEL OPPONENT: https://URL"
+    // 비탐욕 매칭으로 첫 콜론+URL 구분
+    const lineMatch = line.match(/^(.*?)\s*:?\s*(https?:\/\/\S+)\s*$/);
+    if (!lineMatch) continue;
 
-    const videoLink = line.slice(httpIdx).trim();
-    // URL 앞 텍스트: 공백·콜론 제거
-    const beforeUrl = line.slice(0, httpIdx).replace(/[\s:]+$/, '').trim();
+    const beforeUrl = lineMatch[1].trim();
+    const videoLink = lineMatch[2].trim();
 
     if (!beforeUrl) {
       matches.push(newMatch(false, '', '', videoLink));
       continue;
     }
 
-    // 라운드명 패턴 — 첫 1~2토큰이 라운드명인지 검사
-    // e.g. "예선1 레드문" / "예선 2 MUTANT" / "8강 레드문 fc" / "3.4위전 PELTA"
-    const tokens = beforeUrl.split(/\s+/);
-    let label = '';
-    let opponent = beforeUrl;
-
-    const ROUND_RE = /^(예선\d*|8강|16강|4강|준결승|결승|3\.?4위전|3위전|조별리그\d*)$/i;
-
-    if (tokens.length >= 2) {
-      // 첫 토큰이 라운드명인지 ("8강", "4강", "결승" 등)
-      if (ROUND_RE.test(tokens[0])) {
-        label = tokens[0];
-        opponent = tokens.slice(1).join(' ');
-      }
-      // 두 토큰이 합쳐서 라운드명인지 ("예선 2", "조별리그 1" 등)
-      else if (tokens.length >= 3 && ROUND_RE.test(tokens[0] + tokens[1])) {
-        label = tokens[0] + tokens[1];
-        opponent = tokens.slice(2).join(' ');
-      }
-      // "예선" + 숫자 분리형 ("예선 2 MUTANT")
-      else if (/^예선$/.test(tokens[0]) && /^\d+$/.test(tokens[1])) {
-        label = tokens[0] + tokens[1]; // "예선2"
-        opponent = tokens.slice(2).join(' ');
-      }
-    }
-
-    matches.push(newMatch(false, label, opponent || beforeUrl, videoLink));
+    const { label, opponent } = splitLabelOpponent(beforeUrl);
+    matches.push(newMatch(false, label, opponent, videoLink));
   }
 
   return { date, place, matches };
