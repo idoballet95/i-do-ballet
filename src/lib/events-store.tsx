@@ -11,7 +11,7 @@ import {
 import { WorkoutEvent } from '@/types';
 import { mockEvents } from '@/data/mock';
 
-const STORAGE_KEY = 'idoballet_events_v3';
+const STORAGE_KEY = 'idoballet_events_v4';
 
 interface EventsCtx {
   events: WorkoutEvent[];
